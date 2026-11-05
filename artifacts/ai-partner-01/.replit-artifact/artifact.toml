@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "AI Partner 01"
+description = "A responsive desktop AI companion prototype with a friendly mascot face, lightweight chat, and a persistent task list."
+version = "1.0.0"
+id = "artifacts/ai-partner-01"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25247
+
+[services.development]
+run = "pnpm --filter @workspace/ai-partner-01 run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/ai-partner-01", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/ai-partner-01/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25247"
+BASE_PATH = "/"
