@@ -45,6 +45,22 @@ export function loadCommunicationPreferences(): CommunicationPreferences {
           typeof voice.readRepliesAloud === 'boolean'
             ? voice.readRepliesAloud
             : DEFAULT_COMMUNICATION_PREFERENCES.voice.readRepliesAloud,
+        voiceURI:
+          typeof voice.voiceURI === 'string'
+            ? voice.voiceURI
+            : DEFAULT_COMMUNICATION_PREFERENCES.voice.voiceURI,
+        speechRate:
+          typeof voice.speechRate === 'number' &&
+          voice.speechRate >= 0.75 &&
+          voice.speechRate <= 1.25
+            ? voice.speechRate
+            : DEFAULT_COMMUNICATION_PREFERENCES.voice.speechRate,
+        speechPitch:
+          typeof voice.speechPitch === 'number' &&
+          voice.speechPitch >= 0.8 &&
+          voice.speechPitch <= 1.2
+            ? voice.speechPitch
+            : DEFAULT_COMMUNICATION_PREFERENCES.voice.speechPitch,
       },
       proactive: {
         enabled:

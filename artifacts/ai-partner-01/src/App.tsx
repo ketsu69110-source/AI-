@@ -4,22 +4,27 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
-import { Check, CheckCheck, ListTodo, Mic, MicOff, Plus, Send, Sparkles, Square, Trash2 } from 'lucide-react';
+import { Check, CheckCheck, ListTodo, Mic, MicOff, Plus, Send, Settings2, Sparkles, Square, Trash2 } from 'lucide-react';
+import { VoiceSettingsPanel } from './components/voice-settings';
 import { createLocalReply } from './lib/mockReply';
 import {
   loadCommunicationPreferences,
   saveCommunicationPreferences,
 } from './lib/communication/preferences';
-import type { ConversationSource } from './lib/communication/types';
+import type {
+  CommunicationPreferences,
+  ConversationEmotion,
+  ConversationSource,
+} from './lib/communication/types';
 import {
   createSpeechRecognition,
   isSpeechRecognitionSupported,
   type SpeechRecognitionSession,
 } from './lib/speech/recognition';
 import {
+  browserSpeechOutput,
   isSpeechSynthesisSupported,
-  speakJapanese,
-  stopSpeech,
+  type SpeechVoiceOption,
 } from './lib/speech/synthesis';
 import { loadMessages, loadTasks, saveMessages, saveTasks } from './lib/storage';
 import type { ChatMessage, Task } from './lib/types';
@@ -35,12 +40,14 @@ const queryClient = new QueryClient();
 function Home() {
   const [tasks, setTasks] = useState<Task[]>(loadTasks);
   const [messages, setMessages] = useState<ChatMessage[]>(loadMessages);
-  const [communicationPreferences] = useState(loadCommunicationPreferences);
+  const [communicationPreferences, setCommunicationPreferences] = useState(loadCommunicationPreferences);
   const [taskDraft, setTaskDraft] = useState('');
   const [messageDraft, setMessageDraft] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [speechStatus, setSpeechStatus] = useState('');
+  const [availableVoices, setAvailableVoices] = useState<SpeechVoiceOption[]>(() => browserSpeechOutput.listJapaneseVoices());
+  const [showVoiceSettings, setShowVoiceSettings] = useState(false);
   const [supportsRecognition] = useState(isSpeechRecognitionSupported);
   const [supportsSynthesis] = useState(isSpeechSynthesisSupported);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -56,12 +63,26 @@ function Home() {
   useEffect(() => saveMessages(messages), [messages]);
   useEffect(() => saveCommunicationPreferences(communicationPreferences), [communicationPreferences]);
   useEffect(() => {
+    if (!supportsSynthesis) return;
+    const refreshVoices = () => setAvailableVoices(browserSpeechOutput.listJapaneseVoices());
+    refreshVoices();
+    const unsubscribe = browserSpeechOutput.subscribeVoicesChanged(refreshVoices);
+    const delayedRefreshes = [
+      window.setTimeout(refreshVoices, 300),
+      window.setTimeout(refreshVoices, 1200),
+    ];
+    return () => {
+      unsubscribe();
+      delayedRefreshes.forEach(window.clearTimeout);
+    };
+  }, [supportsSynthesis]);
+  useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages.length]);
   useEffect(() => () => {
     recognitionRef.current?.abort();
     recognitionRef.current = null;
-    stopSpeech();
+    browserSpeechOutput.stop();
   }, []);
 
   function addTask(event: FormEvent<HTMLFormElement>) {
@@ -86,6 +107,61 @@ function Home() {
     setTasks((current) => current.filter((task) => task.id !== id));
   }
 
+  function updateVoiceSettings(patch: Partial<CommunicationPreferences['voice']>) {
+    if (patch.inputEnabled === false && recognitionRef.current) {
+      const activeRecognition = recognitionRef.current;
+      recognitionRef.current = null;
+      activeRecognition.abort();
+      setIsListening(false);
+      setSpeechStatus('マイク入力をOFFにしました。');
+    }
+    if (patch.readRepliesAloud === false) {
+      speechSessionRef.current += 1;
+      browserSpeechOutput.stop();
+      setIsSpeaking(false);
+      setSpeechStatus('返答の読み上げをOFFにしました。');
+    }
+    setCommunicationPreferences((current) => ({
+      ...current,
+      voice: { ...current.voice, ...patch },
+    }));
+  }
+
+  function playAssistantText(text: string, emotion: ConversationEmotion): boolean {
+    if (!supportsSynthesis) return false;
+    const speechSession = ++speechSessionRef.current;
+    const started = browserSpeechOutput.speak(
+      text,
+      communicationPreferences.voice,
+      emotion,
+      {
+        onStart: () => {
+          if (speechSessionRef.current === speechSession) {
+            setIsSpeaking(true);
+            setSpeechStatus('ミオが話しています。');
+          }
+        },
+        onEnd: () => {
+          if (speechSessionRef.current === speechSession) {
+            setIsSpeaking(false);
+            setSpeechStatus('');
+          }
+        },
+        onError: () => {
+          if (speechSessionRef.current === speechSession) {
+            setIsSpeaking(false);
+            setSpeechStatus('音声を再生できませんでした。返答は画面で確認できます。');
+          }
+        },
+      },
+    );
+    if (!started) {
+      setIsSpeaking(false);
+      setSpeechStatus('音声を再生できませんでした。返答は画面で確認できます。');
+    }
+    return started;
+  }
+
   function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = messageDraft.trim();
@@ -106,43 +182,21 @@ function Home() {
       createdAt: now,
       source,
     };
+    const reply = createLocalReply(text, messages, tasks);
     const answer: ChatMessage = {
       id: `assistant-${Date.now()}`,
       role: 'assistant',
-      text: createLocalReply(text),
+      text: reply.text,
       createdAt: new Date(Date.now() + 1).toISOString(),
       source,
+      emotion: reply.emotion,
     };
     setMessages((current) => [...current, userMessage, answer]);
     setMessageDraft('');
     messageSourceRef.current = 'text';
     setSpeechStatus('');
-    if (supportsSynthesis && communicationPreferences.voice.readRepliesAloud) {
-      const speechSession = ++speechSessionRef.current;
-      const started = speakJapanese(answer.text, {
-        onStart: () => {
-          if (speechSessionRef.current === speechSession) {
-            setIsSpeaking(true);
-            setSpeechStatus('ミオが話しています。');
-          }
-        },
-        onEnd: () => {
-          if (speechSessionRef.current === speechSession) {
-            setIsSpeaking(false);
-            setSpeechStatus('');
-          }
-        },
-        onError: () => {
-          if (speechSessionRef.current === speechSession) {
-            setIsSpeaking(false);
-            setSpeechStatus('音声を再生できませんでした。返答は画面で確認できます。');
-          }
-        },
-      });
-      if (!started) {
-        setIsSpeaking(false);
-        setSpeechStatus('音声を再生できませんでした。返答は画面で確認できます。');
-      }
+    if (communicationPreferences.voice.readRepliesAloud) {
+      playAssistantText(answer.text, answer.emotion ?? 'warm');
     }
   }
 
@@ -154,7 +208,7 @@ function Home() {
     }
 
     speechSessionRef.current += 1;
-    stopSpeech();
+    browserSpeechOutput.stop();
     setIsSpeaking(false);
     recognitionFailedRef.current = false;
     recognitionBaseRef.current = messageDraft.trim();
@@ -211,7 +265,7 @@ function Home() {
 
   function stopSpokenReply() {
     speechSessionRef.current += 1;
-    stopSpeech();
+    browserSpeechOutput.stop();
     setIsSpeaking(false);
     setSpeechStatus('読み上げを停止しました。');
   }
@@ -293,8 +347,29 @@ function Home() {
             <div>
               <h2 className="heading-title" id="chat-title"><span className="heading-icon"><Sparkles size={16} /></span>ミオと話す</h2>
             </div>
-            <div className="assistant-status" data-testid="status-assistant"><span className="state-dot" />オンライン</div>
+            <div className="chat-header-tools">
+              <div className="assistant-status" data-testid="status-assistant"><span className="state-dot" />オンライン</div>
+              <button
+                className="voice-settings-toggle"
+                type="button"
+                onClick={() => setShowVoiceSettings((current) => !current)}
+                aria-expanded={showVoiceSettings}
+                aria-controls="voice-settings-panel"
+                data-testid="button-open-voice-settings"
+              ><Settings2 size={15} />音声設定</button>
+            </div>
           </header>
+          {showVoiceSettings && (
+            <VoiceSettingsPanel
+              settings={communicationPreferences.voice}
+              voices={availableVoices}
+              supported={supportsSynthesis}
+              onChange={updateVoiceSettings}
+              onPreview={() => playAssistantText('こんにちは。今日はどんな一日にしましょう？', 'warm')}
+              onRefreshVoices={() => setAvailableVoices(browserSpeechOutput.listJapaneseVoices())}
+              onClose={() => setShowVoiceSettings(false)}
+            />
+          )}
           <div className="chat-body" role="log" aria-live="polite" aria-label="会話履歴" data-testid="list-chat-messages">
             <p className="day-label">今日の会話</p>
             {messages.length === 0 ? (
@@ -345,12 +420,14 @@ function Home() {
               <button className="send-button" type="submit" aria-label="メッセージを送信" disabled={!messageDraft.trim()} data-testid="button-send-message"><Send size={16} /></button>
             </form>
             <p className={`speech-status${isListening ? ' active' : ''}`} role="status" aria-live="polite" data-testid="status-speech">
-              {speechStatus || (supportsRecognition ? 'マイクを押して話せます。初回はブラウザの許可が必要です。' : '音声入力は未対応です。文字で入力できます。')}
+              {speechStatus || (!communicationPreferences.voice.inputEnabled ? 'マイク入力はOFFです。音声設定から変更できます。' : supportsRecognition ? 'マイクを押して話せます。初回はブラウザの許可が必要です。' : '音声入力は未対応です。文字で入力できます。')}
             </p>
             <p className="chat-hint">
-              {supportsSynthesis
-                ? 'この会話はこの端末に保存されます。送信後、ミオが返答を読み上げます。'
-                : 'この会話はこの端末に保存されます。音声読み上げは未対応です。'}
+              {!communicationPreferences.voice.readRepliesAloud
+                ? 'この会話はこの端末に保存されます。返答の読み上げはOFFです。'
+                : supportsSynthesis
+                  ? 'この会話はこの端末に保存されます。送信後、ミオが返答を読み上げます。'
+                  : 'この会話はこの端末に保存されます。音声読み上げは未対応です。'}
             </p>
           </footer>
         </section>

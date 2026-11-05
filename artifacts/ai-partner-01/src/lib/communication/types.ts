@@ -10,6 +10,14 @@ export type ConversationSource =
 
 export type ProactiveTrigger = 'upcoming-schedule' | 'incomplete-task';
 
+export type ConversationEmotion =
+  | 'neutral'
+  | 'warm'
+  | 'happy'
+  | 'surprised'
+  | 'concerned'
+  | 'explanatory';
+
 export type ProactiveCommunicationPreferences = {
   enabled: boolean;
   allowedStart: string;
@@ -27,6 +35,9 @@ export type CommunicationPreferences = {
     inputMode: VoiceInputMode;
     wakePhrase: string;
     readRepliesAloud: boolean;
+    voiceURI: string;
+    speechRate: number;
+    speechPitch: number;
   };
   proactive: ProactiveCommunicationPreferences;
 };
@@ -37,6 +48,9 @@ export const DEFAULT_COMMUNICATION_PREFERENCES: CommunicationPreferences = {
     inputMode: 'push-to-talk',
     wakePhrase: 'ねえ、ミオ',
     readRepliesAloud: true,
+    voiceURI: '',
+    speechRate: 0.96,
+    speechPitch: 1,
   },
   proactive: {
     enabled: false,

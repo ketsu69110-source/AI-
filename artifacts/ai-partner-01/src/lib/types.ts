@@ -1,4 +1,7 @@
-import type { ConversationSource } from './communication/types';
+import type {
+  ConversationEmotion,
+  ConversationSource,
+} from './communication/types';
 
 export type Task = {
   id: string;
@@ -13,4 +16,5 @@ export type ChatMessage = {
   text: string;
   createdAt: string;
   source?: ConversationSource;
+  emotion?: ConversationEmotion;
 };

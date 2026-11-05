@@ -10,9 +10,9 @@ const starterTasks: Task[] = [
 ];
 
 const starterMessages: ChatMessage[] = [
-  { id: 'starter-chat-1', role: 'assistant', text: 'おはようございます。今日もそばにいます。まずは、ひとつずつ進めていきましょう。', createdAt: new Date().toISOString() },
+  { id: 'starter-chat-1', role: 'assistant', text: 'おはよう。今日も一緒だよ。今日はどんな気分？', createdAt: new Date().toISOString(), emotion: 'warm' },
   { id: 'starter-chat-2', role: 'user', text: '今日のタスクを整理したいな', createdAt: new Date().toISOString() },
-  { id: 'starter-chat-3', role: 'assistant', text: 'いいですね。やることを送ってくれたら、一緒に確認します。', createdAt: new Date().toISOString() },
+  { id: 'starter-chat-3', role: 'assistant', text: '今日は「メールに返信する」と「帰りに牛乳を買う」が残っているよ。どちらから始める？', createdAt: new Date().toISOString(), emotion: 'explanatory' },
 ];
 
 function read<T>(key: string, fallback: T): T {
