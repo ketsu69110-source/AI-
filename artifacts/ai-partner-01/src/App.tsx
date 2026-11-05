@@ -7,6 +7,11 @@ import NotFound from '@/pages/not-found';
 import { Check, CheckCheck, ListTodo, Mic, MicOff, Plus, Send, Sparkles, Square, Trash2 } from 'lucide-react';
 import { createLocalReply } from './lib/mockReply';
 import {
+  loadCommunicationPreferences,
+  saveCommunicationPreferences,
+} from './lib/communication/preferences';
+import type { ConversationSource } from './lib/communication/types';
+import {
   createSpeechRecognition,
   isSpeechRecognitionSupported,
   type SpeechRecognitionSession,
@@ -30,6 +35,7 @@ const queryClient = new QueryClient();
 function Home() {
   const [tasks, setTasks] = useState<Task[]>(loadTasks);
   const [messages, setMessages] = useState<ChatMessage[]>(loadMessages);
+  const [communicationPreferences] = useState(loadCommunicationPreferences);
   const [taskDraft, setTaskDraft] = useState('');
   const [messageDraft, setMessageDraft] = useState('');
   const [isListening, setIsListening] = useState(false);
@@ -42,11 +48,13 @@ function Home() {
   const recognitionBaseRef = useRef('');
   const recognitionFailedRef = useRef(false);
   const speechSessionRef = useRef(0);
+  const messageSourceRef = useRef<ConversationSource>('text');
   const completedCount = useMemo(() => tasks.filter((task) => task.completed).length, [tasks]);
   const progress = tasks.length ? Math.round((completedCount / tasks.length) * 100) : 0;
 
   useEffect(() => saveTasks(tasks), [tasks]);
   useEffect(() => saveMessages(messages), [messages]);
+  useEffect(() => saveCommunicationPreferences(communicationPreferences), [communicationPreferences]);
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages.length]);
@@ -90,22 +98,26 @@ function Home() {
       activeRecognition.stop();
     }
     const now = new Date().toISOString();
+    const source = messageSourceRef.current;
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
       text,
       createdAt: now,
+      source,
     };
     const answer: ChatMessage = {
       id: `assistant-${Date.now()}`,
       role: 'assistant',
       text: createLocalReply(text),
       createdAt: new Date(Date.now() + 1).toISOString(),
+      source,
     };
     setMessages((current) => [...current, userMessage, answer]);
     setMessageDraft('');
+    messageSourceRef.current = 'text';
     setSpeechStatus('');
-    if (supportsSynthesis) {
+    if (supportsSynthesis && communicationPreferences.voice.readRepliesAloud) {
       const speechSession = ++speechSessionRef.current;
       const started = speakJapanese(answer.text, {
         onStart: () => {
@@ -135,7 +147,7 @@ function Home() {
   }
 
   function toggleSpeechRecognition() {
-    if (!supportsRecognition) return;
+    if (!supportsRecognition || !communicationPreferences.voice.inputEnabled) return;
     if (recognitionRef.current) {
       recognitionRef.current.stop();
       return;
@@ -163,6 +175,7 @@ function Home() {
         if (!session || recognitionRef.current !== session) return;
         const spokenText = `${finalTranscript}${interimTranscript}`.trim();
         const baseText = recognitionBaseRef.current;
+        if (spokenText) messageSourceRef.current = 'push-to-talk';
         setMessageDraft([baseText, spokenText].filter(Boolean).join(baseText && spokenText ? ' ' : ''));
       },
       onError: (error) => {
@@ -302,7 +315,10 @@ function Home() {
               <input
                 className="chat-input"
                 value={messageDraft}
-                onChange={(event) => setMessageDraft(event.target.value)}
+                onChange={(event) => {
+                  setMessageDraft(event.target.value);
+                  messageSourceRef.current = 'text';
+                }}
                 placeholder="ミオに話しかける..."
                 aria-label="メッセージ"
                 data-testid="input-chat-message"
@@ -311,10 +327,10 @@ function Home() {
                 className={`voice-button${isListening ? ' listening' : ''}`}
                 type="button"
                 onClick={toggleSpeechRecognition}
-                disabled={!supportsRecognition}
+                disabled={!supportsRecognition || !communicationPreferences.voice.inputEnabled}
                 aria-label={isListening ? '音声入力を停止' : '音声入力を開始'}
                 aria-pressed={isListening}
-                title={supportsRecognition ? 'マイクで音声入力' : 'このブラウザは音声入力に未対応です'}
+                title={!supportsRecognition ? 'このブラウザは音声入力に未対応です' : communicationPreferences.voice.inputEnabled ? 'マイクで音声入力' : '音声入力は設定でOFFです'}
                 data-testid="button-toggle-microphone"
               >{isListening ? <MicOff size={16} /> : <Mic size={16} />}</button>
               {isSpeaking && (

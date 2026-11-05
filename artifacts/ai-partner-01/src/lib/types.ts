@@ -1,3 +1,5 @@
+import type { ConversationSource } from './communication/types';
+
 export type Task = {
   id: string;
   title: string;
@@ -10,4 +12,5 @@ export type ChatMessage = {
   role: 'user' | 'assistant';
   text: string;
   createdAt: string;
+  source?: ConversationSource;
 };
