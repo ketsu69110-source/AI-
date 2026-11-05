@@ -140,9 +140,19 @@ button { cursor: pointer; }
 .chat-form:focus-within { border-color:#81d1dc;box-shadow:0 0 0 3px #e8f8fa; }
 .chat-input { width:100%;min-width:0;border:0;outline:0;background:transparent;color:#243138;font-size:13px;padding:7px 0; }
 .chat-input::placeholder { color:#a2adb1; }
+.voice-button,.stop-speech-button { width:37px;height:37px;flex:none;display:grid;place-items:center;border:0;border-radius:11px;transition:background .18s,color .18s,transform .18s; }
+.voice-button { background:#e7f7f9;color:#268da0; }
+.voice-button:hover:not(:disabled) { transform:translateY(-1px);background:#d5f1f4; }
+.voice-button.listening { background:#43b7c9;color:#fff;animation:listen-pulse 1.4s ease-in-out infinite; }
+.voice-button:disabled { opacity:.42;cursor:not-allowed; }
+.stop-speech-button { background:#fff0ef;color:#bd5854; }
+.stop-speech-button:hover { background:#ffe2e0; }
+.voice-button:focus-visible,.stop-speech-button:focus-visible,.send-button:focus-visible { outline:3px solid #9bdae2;outline-offset:2px; }
 .send-button { width:37px;height:37px;display:grid;place-items:center;border:0;border-radius:11px;background:#1c252c;color:#a1edf4;transition:transform .18s,background .18s; }
 .send-button:hover { transform:translateY(-1px);background:#33434b; }
 .send-button:disabled { opacity:.4;cursor:not-allowed; }
+.speech-status { color:#89969b;font-size:10px;line-height:1.55;margin:9px 5px 0; }
+.speech-status.active { color:#268da0; }
 .chat-hint { color:#a0aaae;font-size:10px;margin:9px 5px 0; }
 .tasks-card { margin-top:24px; }
 .task-count { color:#8e999e;font:11px var(--app-font-mono); }
@@ -169,6 +179,7 @@ button { cursor: pointer; }
 .footer-line { width:25px;height:1px;background:#c9d3d6; }
 @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
 @keyframes rise { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:translateY(0)} }
+@keyframes listen-pulse { 50% { box-shadow:0 0 0 5px #dff5f7; } }
 @media (min-width:1100px) {
   .main-grid { grid-template-columns:minmax(320px,.9fr) minmax(430px,1.1fr);gap:28px; }
   .left-column { display:grid;grid-template-rows:minmax(405px,1fr) auto; }

@@ -4,8 +4,18 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
-import { Check, CheckCheck, ListTodo, Plus, Send, Sparkles, Trash2 } from 'lucide-react';
+import { Check, CheckCheck, ListTodo, Mic, MicOff, Plus, Send, Sparkles, Square, Trash2 } from 'lucide-react';
 import { createLocalReply } from './lib/mockReply';
+import {
+  createSpeechRecognition,
+  isSpeechRecognitionSupported,
+  type SpeechRecognitionSession,
+} from './lib/speech/recognition';
+import {
+  isSpeechSynthesisSupported,
+  speakJapanese,
+  stopSpeech,
+} from './lib/speech/synthesis';
 import { loadMessages, loadTasks, saveMessages, saveTasks } from './lib/storage';
 import type { ChatMessage, Task } from './lib/types';
 import {
@@ -22,7 +32,16 @@ function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>(loadMessages);
   const [taskDraft, setTaskDraft] = useState('');
   const [messageDraft, setMessageDraft] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [speechStatus, setSpeechStatus] = useState('');
+  const [supportsRecognition] = useState(isSpeechRecognitionSupported);
+  const [supportsSynthesis] = useState(isSpeechSynthesisSupported);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<SpeechRecognitionSession | null>(null);
+  const recognitionBaseRef = useRef('');
+  const recognitionFailedRef = useRef(false);
+  const speechSessionRef = useRef(0);
   const completedCount = useMemo(() => tasks.filter((task) => task.completed).length, [tasks]);
   const progress = tasks.length ? Math.round((completedCount / tasks.length) * 100) : 0;
 
@@ -31,6 +50,11 @@ function Home() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages.length]);
+  useEffect(() => () => {
+    recognitionRef.current?.abort();
+    recognitionRef.current = null;
+    stopSpeech();
+  }, []);
 
   function addTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -58,6 +82,13 @@ function Home() {
     event.preventDefault();
     const text = messageDraft.trim();
     if (!text) return;
+    const activeRecognition = recognitionRef.current;
+    if (activeRecognition) {
+      recognitionRef.current = null;
+      recognitionFailedRef.current = true;
+      setIsListening(false);
+      activeRecognition.stop();
+    }
     const now = new Date().toISOString();
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -73,6 +104,119 @@ function Home() {
     };
     setMessages((current) => [...current, userMessage, answer]);
     setMessageDraft('');
+    setSpeechStatus('');
+    if (supportsSynthesis) {
+      const speechSession = ++speechSessionRef.current;
+      const started = speakJapanese(answer.text, {
+        onStart: () => {
+          if (speechSessionRef.current === speechSession) {
+            setIsSpeaking(true);
+            setSpeechStatus('ミオが話しています。');
+          }
+        },
+        onEnd: () => {
+          if (speechSessionRef.current === speechSession) {
+            setIsSpeaking(false);
+            setSpeechStatus('');
+          }
+        },
+        onError: () => {
+          if (speechSessionRef.current === speechSession) {
+            setIsSpeaking(false);
+            setSpeechStatus('音声を再生できませんでした。返答は画面で確認できます。');
+          }
+        },
+      });
+      if (!started) {
+        setIsSpeaking(false);
+        setSpeechStatus('音声を再生できませんでした。返答は画面で確認できます。');
+      }
+    }
+  }
+
+  function toggleSpeechRecognition() {
+    if (!supportsRecognition) return;
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      return;
+    }
+
+    speechSessionRef.current += 1;
+    stopSpeech();
+    setIsSpeaking(false);
+    recognitionFailedRef.current = false;
+    recognitionBaseRef.current = messageDraft.trim();
+    setSpeechStatus('マイクの使用許可を確認しています。');
+
+    let session: SpeechRecognitionSession | null = null;
+    session = createSpeechRecognition({
+      lang: 'ja-JP',
+      continuous: true,
+      interimResults: true,
+      onStart: () => {
+        if (session && recognitionRef.current === session) {
+          setIsListening(true);
+          setSpeechStatus('聞いています。話し終えたらマイクをもう一度押してください。');
+        }
+      },
+      onResult: ({ finalTranscript, interimTranscript }) => {
+        if (!session || recognitionRef.current !== session) return;
+        const spokenText = `${finalTranscript}${interimTranscript}`.trim();
+        const baseText = recognitionBaseRef.current;
+        setMessageDraft([baseText, spokenText].filter(Boolean).join(baseText && spokenText ? ' ' : ''));
+      },
+      onError: (error) => {
+        if (!session || recognitionRef.current !== session) return;
+        recognitionFailedRef.current = true;
+        setIsListening(false);
+        setSpeechStatus(getRecognitionErrorMessage(error));
+      },
+      onEnd: () => {
+        if (!session || recognitionRef.current !== session) return;
+        recognitionRef.current = null;
+        setIsListening(false);
+        if (!recognitionFailedRef.current) {
+          setSpeechStatus('認識した内容を確認して、送信してください。');
+        }
+      },
+    });
+
+    if (!session) {
+      setSpeechStatus('このブラウザでは音声入力を開始できません。文字で入力できます。');
+      return;
+    }
+
+    recognitionRef.current = session;
+    try {
+      session.start();
+    } catch {
+      recognitionRef.current = null;
+      setIsListening(false);
+      setSpeechStatus('音声入力を開始できませんでした。ブラウザのマイク設定をご確認ください。');
+    }
+  }
+
+  function stopSpokenReply() {
+    speechSessionRef.current += 1;
+    stopSpeech();
+    setIsSpeaking(false);
+    setSpeechStatus('読み上げを停止しました。');
+  }
+
+  function getRecognitionErrorMessage(error: string): string {
+    switch (error) {
+      case 'not-allowed':
+      case 'service-not-allowed':
+        return 'マイクまたは音声認識が許可されていません。サイトのマイク設定をご確認ください。iPad SafariではSiriの設定もご確認ください。';
+      case 'audio-capture':
+        return 'マイクを利用できません。マイクの接続や設定をご確認ください。';
+      case 'no-speech':
+        return '声を認識できませんでした。もう一度お試しください。';
+      case 'network':
+        return '音声認識サービスに接続できません。文字入力をお使いください。';
+      default:
+        return '音声入力を続けられませんでした。文字入力をお使いください。';
+    }
   }
 
   function timeLabel(value: string) {
@@ -163,9 +307,35 @@ function Home() {
                 aria-label="メッセージ"
                 data-testid="input-chat-message"
               />
+              <button
+                className={`voice-button${isListening ? ' listening' : ''}`}
+                type="button"
+                onClick={toggleSpeechRecognition}
+                disabled={!supportsRecognition}
+                aria-label={isListening ? '音声入力を停止' : '音声入力を開始'}
+                aria-pressed={isListening}
+                title={supportsRecognition ? 'マイクで音声入力' : 'このブラウザは音声入力に未対応です'}
+                data-testid="button-toggle-microphone"
+              >{isListening ? <MicOff size={16} /> : <Mic size={16} />}</button>
+              {isSpeaking && (
+                <button
+                  className="stop-speech-button"
+                  type="button"
+                  onClick={stopSpokenReply}
+                  aria-label="読み上げを停止"
+                  data-testid="button-stop-speech"
+                ><Square size={14} fill="currentColor" /></button>
+              )}
               <button className="send-button" type="submit" aria-label="メッセージを送信" disabled={!messageDraft.trim()} data-testid="button-send-message"><Send size={16} /></button>
             </form>
-            <p className="chat-hint">この会話はこの端末に保存されます</p>
+            <p className={`speech-status${isListening ? ' active' : ''}`} role="status" aria-live="polite" data-testid="status-speech">
+              {speechStatus || (supportsRecognition ? 'マイクを押して話せます。初回はブラウザの許可が必要です。' : '音声入力は未対応です。文字で入力できます。')}
+            </p>
+            <p className="chat-hint">
+              {supportsSynthesis
+                ? 'この会話はこの端末に保存されます。送信後、ミオが返答を読み上げます。'
+                : 'この会話はこの端末に保存されます。音声読み上げは未対応です。'}
+            </p>
           </footer>
         </section>
       </div>
