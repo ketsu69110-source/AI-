@@ -5,8 +5,10 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { Check, CheckCheck, ListTodo, Mic, MicOff, Plus, Send, Settings2, Sparkles, Square, Trash2 } from 'lucide-react';
+import { getWeather } from '@workspace/api-client-react';
 import { VoiceSettingsPanel } from './components/voice-settings';
 import { createLocalReply } from './lib/mockReply';
+import { formatWeatherReply, parseWeatherIntent } from './lib/weather-intent';
 import {
   loadCommunicationPreferences,
   saveCommunicationPreferences,
@@ -45,6 +47,7 @@ function Home() {
   const [messageDraft, setMessageDraft] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isWeatherLoading, setIsWeatherLoading] = useState(false);
   const [speechStatus, setSpeechStatus] = useState('');
   const [availableVoices, setAvailableVoices] = useState<SpeechVoiceOption[]>(() => browserSpeechOutput.listJapaneseVoices());
   const [showVoiceSettings, setShowVoiceSettings] = useState(false);
@@ -162,10 +165,39 @@ function Home() {
     return started;
   }
 
+  function appendAssistantReply(
+    text: string,
+    source: ConversationSource,
+    emotion: ConversationEmotion = 'warm',
+  ) {
+    const answer: ChatMessage = {
+      id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      role: 'assistant',
+      text,
+      createdAt: new Date().toISOString(),
+      source,
+      emotion,
+    };
+    setMessages((current) => [...current, answer]);
+    if (communicationPreferences.voice.readRepliesAloud) {
+      playAssistantText(answer.text, answer.emotion ?? 'warm');
+    }
+  }
+
+  function weatherFailureMessage(error: unknown, location: string, dateLabel: string): string {
+    const status = typeof error === 'object' && error !== null && 'status' in error
+      ? (error as { status?: unknown }).status
+      : undefined;
+    if (status === 404) {
+      return `「${location}」の場所、または${dateLabel}の予報が見つからなかったよ。地域名や日付を変えて試してみてね。`;
+    }
+    return '天気情報を取得できなかったよ。通信状況を確認して、少し時間をおいてもう一度試してね。';
+  }
+
   function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = messageDraft.trim();
-    if (!text) return;
+    if (!text || isWeatherLoading) return;
     const activeRecognition = recognitionRef.current;
     if (activeRecognition) {
       recognitionRef.current = null;
@@ -182,6 +214,45 @@ function Home() {
       createdAt: now,
       source,
     };
+
+    const weatherIntent = parseWeatherIntent(text);
+    if (weatherIntent) {
+      setMessages((current) => [...current, userMessage]);
+      setMessageDraft('');
+      messageSourceRef.current = 'text';
+      setSpeechStatus('');
+
+      if (!weatherIntent.location) {
+        appendAssistantReply(
+          `${weatherIntent.dateLabel}の天気を調べるね。どの地域の天気が知りたい？市区町村名を教えてね。`,
+          source,
+          'explanatory',
+        );
+        return;
+      }
+
+      setIsWeatherLoading(true);
+      void getWeather({
+        location: weatherIntent.location,
+        date: weatherIntent.date,
+      }).then((forecast) => {
+        appendAssistantReply(
+          formatWeatherReply(forecast, weatherIntent.dateLabel),
+          source,
+          'explanatory',
+        );
+      }).catch((error: unknown) => {
+        appendAssistantReply(
+          weatherFailureMessage(error, weatherIntent.location ?? '', weatherIntent.dateLabel),
+          source,
+          'concerned',
+        );
+      }).finally(() => {
+        setIsWeatherLoading(false);
+      });
+      return;
+    }
+
     const reply = createLocalReply(text, messages, tasks);
     const answer: ChatMessage = {
       id: `assistant-${Date.now()}`,
@@ -417,10 +488,10 @@ function Home() {
                   data-testid="button-stop-speech"
                 ><Square size={14} fill="currentColor" /></button>
               )}
-              <button className="send-button" type="submit" aria-label="メッセージを送信" disabled={!messageDraft.trim()} data-testid="button-send-message"><Send size={16} /></button>
+              <button className="send-button" type="submit" aria-label="メッセージを送信" disabled={!messageDraft.trim() || isWeatherLoading} data-testid="button-send-message"><Send size={16} /></button>
             </form>
             <p className={`speech-status${isListening ? ' active' : ''}`} role="status" aria-live="polite" data-testid="status-speech">
-              {speechStatus || (!communicationPreferences.voice.inputEnabled ? 'マイク入力はOFFです。音声設定から変更できます。' : supportsRecognition ? 'マイクを押して話せます。初回はブラウザの許可が必要です。' : '音声入力は未対応です。文字で入力できます。')}
+              {speechStatus || (isWeatherLoading ? 'ミオが天気を調べています…' : !communicationPreferences.voice.inputEnabled ? 'マイク入力はOFFです。音声設定から変更できます。' : supportsRecognition ? 'マイクを押して話せます。初回はブラウザの許可が必要です。' : '音声入力は未対応です。文字で入力できます。')}
             </p>
             <p className="chat-hint">
               {!communicationPreferences.voice.readRepliesAloud

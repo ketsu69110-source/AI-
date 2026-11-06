@@ -1,1 +1,2 @@
 - [音声インタラクション](voice-interaction.md) — 音声認識と読み上げを分け、将来「ねえ、ミオ」のウェイクワードを追加できる形を保つ。
+- [Weather API routing](weather-api-routing.md) — Open-Meteo is keyless for prototype use but lacks browser CORS; route browser requests through the same-origin API.

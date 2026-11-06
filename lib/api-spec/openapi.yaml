@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: weather
+    description: Weather forecast operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,50 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /weather:
+    get:
+      operationId: getWeather
+      tags: [weather]
+      summary: Get a daily weather forecast for a location
+      parameters:
+        - name: location
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+      responses:
+        "200":
+          description: Daily weather forecast
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeatherForecast"
+        "400":
+          description: Invalid location or date parameter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+        "404":
+          description: Location or forecast date not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+        "502":
+          description: Weather provider is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +79,46 @@ components:
           type: string
       required:
         - status
+    WeatherForecast:
+      type: object
+      properties:
+        locationName:
+          type: string
+        region:
+          type: ["string", "null"]
+        country:
+          type: string
+        date:
+          type: string
+          pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+        dateLabel:
+          type: string
+        condition:
+          type: string
+        weatherCode:
+          type: integer
+        temperatureHighC:
+          type: number
+        temperatureLowC:
+          type: number
+        precipitationProbabilityPercent:
+          type: ["integer", "null"]
+      required:
+        - locationName
+        - region
+        - country
+        - date
+        - dateLabel
+        - condition
+        - weatherCode
+        - temperatureHighC
+        - temperatureLowC
+        - precipitationProbabilityPercent
+    ErrorMessage:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
 
